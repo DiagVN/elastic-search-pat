@@ -10,6 +10,11 @@ class AnalyzerVO
         private readonly string $analyzerTokenizer,
         private readonly array $analyzerFilter
     ) {
+        foreach ($this->analyzerFilter as $filter) {
+            if (!is_string($filter)) {
+                throw new \InvalidArgumentException('Analyzer filter must be string');
+            }
+        }
     }
 
     public function getAnalyzerName(): string

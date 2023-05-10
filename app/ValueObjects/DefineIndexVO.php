@@ -14,7 +14,7 @@ class DefineIndexVO
     ) {
         foreach ($this->properties as $property) {
             if (!$property instanceof PropertyVO) {
-                throw new \Exception('PropertyVO is required');
+                throw new \InvalidArgumentException('PropertyVO is required');
             }
         }
     }

@@ -15,7 +15,7 @@ class ElasticSearch
     public function defineIndex(DefineIndexVO $defineIndexVO, ?int $version = null, bool $makeAlias = false): void
     {
         $data = [];
-        $data['index'] = $defineIndexVO->getIndexName();
+        $data['index'] = $defineIndexVO->getIndexName().'.'.$version;
         $data['body'] = [];
         $data['body']['settings'] = [];
         $data['body']['settings']['number_of_shards'] = $defineIndexVO->getNumberOfShards();
@@ -69,6 +69,8 @@ class ElasticSearch
                     [
                         'remove' => [
                             'index' => $defineIndexVO->getIndexName().'.'.$oldVersion,
+                            'alias' => $defineIndexVO->getIndexAlias(),
+
                         ],
                     ],
                     [
@@ -82,7 +84,7 @@ class ElasticSearch
         ]);
     }
 
-    public function index(string $indexName, array $properties, ?int $id = null): void
+    public function index(string $indexName,  ?int $id = null, array $properties = []): void
     {
         $data = [];
         $data['index'] = $indexName;
@@ -97,7 +99,7 @@ class ElasticSearch
         $this->client->index($data);
     }
 
-    public function updateIndex(string $indexName, int $id, array $properties): void
+    public function updateIndex(string $indexName, int $id, array $properties = []): void
     {
         $data = [];
         $data['index'] = $indexName;
@@ -110,5 +112,10 @@ class ElasticSearch
             $data['body']['doc'][$property->getName()] = $property->getValue();
         }
         $this->client->update($data);
+    }
+
+    public function dropIndex($indexName): void
+    {
+        $this->client->indices()->delete(['index' => $indexName]);
     }
 }

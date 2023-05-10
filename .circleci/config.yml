@@ -1,0 +1,437 @@
+version: 2.1
+orbs:
+  python: circleci/python@1.4.0
+  gcp-gcr: circleci/gcp-gcr@0.13.0
+  gcp-gke: circleci/gcp-gke@1.3.0
+  docker: circleci/docker@1.4.0
+  cli: circleci/circleci-cli@0.1.9
+  slack: circleci/slack@4.10.1
+
+jobs:
+  phpunit-image-rebuild:
+    executor: python/default
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: false
+          version: 20.10.2
+      - gcp-gcr/gcr-auth
+      - gcp-gcr/build-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/phpunit
+          dockerfile: .docker/app/Dockerfile
+          extra_build_args: --build-arg GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} --target dev
+      - gcp-gcr/push-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/phpunit
+      - gcp-gcr/tag-image:
+          image: $CIRCLE_PROJECT_REPONAME/phpunit
+          source-tag: $CIRCLE_SHA1
+          target-tag: latest
+  check-app-lint:
+    executor: python/default
+    steps:
+      - checkout
+      - run: pip install docker-compose
+      - setup_remote_docker:
+          docker_layer_caching: false
+          version: 20.10.6
+      - gcp-gcr/gcr-auth
+      # Go inside running image, clone the repo, switch the branch, composer install and run command
+      - run: docker-compose -f docker-compose.ci.yml run phpunit bash -c "mkdir /var/www_testing && cd /var/www_testing && git clone https://git:$GITHUB_AUTH_TOKEN@github.com/DiagVN/pat--booking--be.git && cd pat--booking--be && git checkout $CIRCLE_BRANCH && sh fetch-and-install-latest-code.sh --check-app-lint"
+
+  run-unit-test:
+    executor: python/default
+    parallelism: 1
+    steps:
+      - checkout
+      - run: pip install docker-compose
+      - setup_remote_docker:
+          docker_layer_caching: false
+          version: 20.10.6
+      - gcp-gcr/gcr-auth
+      - cli/install
+      - run: circleci tests glob "tests/Unit/**/*.php" | circleci tests split | xargs -n1 echo
+      - run: |
+          declare -a tests;
+          testsFilter='';
+          tests=($(circleci tests glob "tests/Unit/**/*.php" | circleci tests split));
+          lastPosition=$(( ${#tests[*]} - 1 ));
+          lastElement=${tests[$lastPosition]};
+          echo $lastPosition;
+          for path in "${tests[@]}"; do
+              testsFilter+=$(echo $path | sed -e 's/\//\\\\/g' | sed -e 's/\.php//i' | sed -e 's/tests/Tests/g');
+              if [[ $path != "$lastElement" ]]; then
+                  testsFilter+='|';
+              fi;
+          done;
+          echo $testsFilter;
+          ci_env=`bash <(curl -s https://codecov.io/env)`
+          docker-compose -f docker-compose.ci.yml run $ci_env -e CI_ENV=true phpunit bash -c "mkdir /var/www_testing && cd /var/www_testing && git clone https://git:$GITHUB_AUTH_TOKEN@github.com/DiagVN/pat--booking--be.git && cd pat--booking--be && git checkout $CIRCLE_BRANCH && sh fetch-and-install-latest-code.sh --filter='$testsFilter' --run-unit-test"
+
+  run-feature-test:
+    executor: python/default
+    parallelism: 1
+    steps:
+      - checkout
+      - run: pip install docker-compose
+      - setup_remote_docker:
+          docker_layer_caching: false
+          version: 20.10.6
+      - gcp-gcr/gcr-auth
+      - cli/install
+      - run: circleci tests glob "tests/Feature/**/*.php" | circleci tests split | xargs -n1 echo
+      - run: |
+          declare -a tests;
+          testsFilter='';
+          tests=($(circleci tests glob "tests/Feature/**/*.php" | circleci tests split));
+          lastPosition=$(( ${#tests[*]} - 1 ));
+          lastElement=${tests[$lastPosition]};
+          echo $lastPosition;
+          for path in "${tests[@]}"; do
+              testsFilter+=$(echo $path | sed -e 's/\//\\\\/g' | sed -e 's/\.php//i' | sed -e 's/tests/Tests/g');
+              if [[ $path != "$lastElement" ]]; then
+                  testsFilter+='|';
+              fi;
+          done;
+          echo $testsFilter;
+          ci_env=`bash <(curl -s https://codecov.io/env)`
+          docker-compose -f docker-compose.ci.yml run $ci_env -e CI_ENV=true phpunit bash -c "mkdir /var/www_testing && cd /var/www_testing && git clone https://git:$GITHUB_AUTH_TOKEN@github.com/DiagVN/pat--booking--be.git && cd pat--booking--be && git checkout $CIRCLE_BRANCH && sh fetch-and-install-latest-code.sh --filter='$testsFilter' --run-feature-test";
+      - slack/notify:
+          channel: "acceptance-test-alert"
+          custom: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text":
+                    {
+                      "type": "mrkdwn",
+                      "text": "Feature tests for *$CIRCLE_BRANCH* branch commited by *$CIRCLE_USERNAME* have failed. Visit $CIRCLE_BUILD_URL for more information"
+                    }
+                }
+              ]
+            }
+          event: fail
+
+  app-build-nginx:
+    docker:
+      - image: circleci/php:8.0.3-node
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+          version: 20.10.6
+      - gcp-gcr/gcr-auth
+      - gcp-gcr/build-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-nginx
+          dockerfile: .docker/web/Dockerfile
+      - gcp-gcr/push-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-nginx
+
+  app-build-php:
+    docker:
+      - image: circleci/php:8.0.3-node
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+          version: 20.10.2
+      - gcp-gcr/gcr-auth
+      - gcp-gcr/build-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          dockerfile: .docker/app/Dockerfile
+          extra_build_args: --build-arg GITHUB_AUTH_TOKEN=${GITHUB_AUTH_TOKEN} --target prod
+      - gcp-gcr/push-image:
+          tag: $CIRCLE_SHA1
+          image: $CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+
+  deploy:
+    description: Deploy to Google Kubernetes Engine
+    executor: gcp-gke/default
+    parameters:
+      namespace:
+        type: string
+      nginx_deployment:
+        type: string
+      nginx_container_name:
+        type: string
+      php_deployment:
+        type: string
+      php_container_name:
+        type: string
+      worker_default_deployment:
+        type: string
+      worker_default_container_name:
+        type: string
+      worker_notifications_deployment:
+        type: string
+      worker_notifications_container_name:
+        type: string
+      consumer_booking_deployment:
+        type: string
+      consumer_booking_container_name:
+        type: string
+      consumer_customer_deployment:
+        type: string
+      consumer_customer_container_name:
+        type: string
+      consumer_lis_test_result_deployment:
+        type: string
+      consumer_lis_test_result_container_name:
+        type: string
+      consumer_appointment_update_deployment:
+        type: string
+      consumer_appointment_update_container_name:
+        type: string
+      consumer_pat_booking_recommend_test_deployment:
+        type: string
+      consumer_pat_booking_recommend_test_container_name:
+        type: string
+      cronjob_cronjob:
+        type: string
+      cronjob_container_name:
+        type: string
+    docker:
+      - image: circleci/php:8.0.3-node
+    steps:
+      - gcp-gke/install
+      - gcp-gcr/gcr-auth
+      - run:
+          command: |
+            export CLOUDSDK_CORE_DISABLE_PROMPTS=1
+            echo $GCLOUD_SERVICE_KEY > ${HOME}/gcloud-service-key.json
+            gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
+            gcloud components update
+            gcloud components install gke-gcloud-auth-plugin
+            gcloud config set project $GOOGLE_PROJECT_ID
+            gcloud container clusters get-credentials $CLUSTER --zone=$GOOGLE_COMPUTE_ZONE
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.nginx_deployment >>
+          container: << parameters.nginx_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-nginx
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.php_deployment >>
+          container: << parameters.php_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.worker_default_deployment >>
+          container: << parameters.worker_default_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.worker_notifications_deployment >>
+          container: << parameters.worker_notifications_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.consumer_booking_deployment >>
+          container: << parameters.consumer_booking_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.consumer_appointment_update_deployment >>
+          container: << parameters.consumer_appointment_update_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.consumer_customer_deployment >>
+          container: << parameters.consumer_customer_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.consumer_lis_test_result_deployment >>
+          container: << parameters.consumer_lis_test_result_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - gcp-gke/rollout-image:
+          cluster: $CLUSTER
+          namespace: << parameters.namespace >>
+          deployment: << parameters.consumer_pat_booking_recommend_test_deployment >>
+          container: << parameters.consumer_pat_booking_recommend_test_container_name >>
+          image: gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php
+          tag: $CIRCLE_SHA1
+      - run: kubectl -n << parameters.namespace >> set image cronjob/<< parameters.cronjob_cronjob >> << parameters.cronjob_container_name >>=gcr.io/$GOOGLE_PROJECT_ID/$CIRCLE_PROJECT_REPONAME/$CIRCLE_BRANCH-php:$CIRCLE_SHA1
+
+      - slack/notify:
+          event: fail
+          template: basic_fail_1
+      - slack/notify:
+          event: pass
+          template: basic_success_1
+
+workflows:
+  ci:
+    jobs:
+      - check-app-lint:
+          context:
+            - Staging
+            - Slack
+          filters:
+            branches:
+              ignore:
+                - develop
+                - master
+      - run-unit-test:
+          context:
+            - Staging
+          filters:
+            branches:
+              ignore:
+                - develop
+                - master
+  infrastructure:
+    jobs:
+      - phpunit-image-rebuild-approval:
+          type: approval
+          filters:
+            branches:
+              only:
+                - /infrastructure\/.*/
+      - phpunit-image-rebuild:
+          context:
+            - Staging
+          requires:
+            - phpunit-image-rebuild-approval
+          filters:
+            branches:
+              only:
+                - /infrastructure\/.*/
+  staging:
+    jobs:
+      - run-feature-test:
+          context:
+            - Staging
+            - Slack
+          filters:
+            branches:
+              only:
+                - develop
+
+      - app-build-nginx:
+          context:
+            - Staging
+          filters:
+            branches:
+              only:
+                - develop
+
+      - app-build-php:
+          context:
+            - Staging
+          filters:
+            branches:
+              only:
+                - develop
+
+      - deploy:
+          namespace: pat--booking--be
+          nginx_deployment: pat--booking--be--app--stag
+          nginx_container_name: nginx
+          php_deployment: pat--booking--be--app--stag
+          php_container_name: app
+          worker_default_deployment: pat--booking--be--wrk--default--stag
+          worker_default_container_name: app
+          worker_notifications_deployment: pat--booking--be--wrk--notifications--stag
+          worker_notifications_container_name: app
+          consumer_booking_deployment: pat--booking--be--consumer-booking--stag
+          consumer_booking_container_name: app
+          consumer_customer_deployment: pat--booking--be--consumer-customer--stag
+          consumer_customer_container_name: app
+          consumer_lis_test_result_deployment: pat--booking--be--consumer-lis-testresult--stag
+          consumer_lis_test_result_container_name: app
+          consumer_appointment_update_deployment: pat--booking--be--consumer-appointment-update--stag
+          consumer_appointment_update_container_name: app
+          consumer_pat_booking_recommend_test_deployment: pat--booking--be--consumer-pat-booking-recommend-test--stag
+          consumer_pat_booking_recommend_test_container_name: app
+          cronjob_cronjob: pat--booking--be--cron--stag
+          cronjob_container_name: app
+          context:
+            - Staging
+            - Slack
+          requires:
+            - app-build-nginx
+            - app-build-php
+          filters:
+            branches:
+              only:
+                - develop
+
+  production:
+    jobs:
+      - app-build-nginx:
+          context:
+            - Prod
+          filters:
+            branches:
+              only:
+                - master
+
+      - app-build-php:
+          context:
+            - Prod
+          filters:
+            branches:
+              only:
+                - master
+      - approval:
+          type: approval
+          requires:
+            - app-build-nginx
+            - app-build-php
+          filters:
+            branches:
+              only:
+                - master
+      - deploy:
+          namespace: pat--booking--be
+          nginx_deployment: pat--booking--be--app--prod
+          nginx_container_name: nginx
+          php_deployment: pat--booking--be--app--prod
+          php_container_name: app
+          worker_default_deployment: pat--booking--be--wrk--default--prod
+          worker_default_container_name: app
+          worker_notifications_deployment: pat--booking--be--wrk--notifications--prod
+          worker_notifications_container_name: app
+          consumer_booking_deployment: pat--booking--be--consumer-booking--prod
+          consumer_booking_container_name: app
+          consumer_customer_deployment: pat--booking--be--consumer-customer--prod
+          consumer_customer_container_name: app
+          consumer_lis_test_result_deployment: pat--booking--be--consumer-lis-testresult--prod
+          consumer_lis_test_result_container_name: app
+          consumer_appointment_update_deployment: pat--booking--be--consumer-appointment-update--prod
+          consumer_appointment_update_container_name: app
+          consumer_pat_booking_recommend_test_deployment: pat--booking--be--consumer-pat-booking-recommend-test--prod
+          consumer_pat_booking_recommend_test_container_name: app
+          cronjob_cronjob: pat--booking--be--cron--prod
+          cronjob_container_name: app
+          context:
+            - Prod
+            - Slack
+          requires:
+            - approval
+          filters:
+            branches:
+              only:
+                - master
