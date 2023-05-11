@@ -7,6 +7,7 @@ class PropertyVO
     public function __construct(
         private readonly string $name,
         private readonly string $type,
+        private readonly ?string $analyzer = null,
         private readonly mixed $value = null
     ) {
     }
@@ -24,5 +25,10 @@ class PropertyVO
     public function getValue(): mixed
     {
         return $this->value;
+    }
+
+    public function getAnalyzer(): ?string
+    {
+        return $this->analyzer;
     }
 }
