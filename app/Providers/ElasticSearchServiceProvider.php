@@ -15,6 +15,9 @@ class ElasticSearchServiceProvider extends ServiceProvider
      */
     public function register()
     {
+        $this->publishes([
+            __DIR__.'/../../config/elasticsearch.php' => config_path('elasticsearch.php'),
+        ]);
         $this->app->bind(ElasticSearch::class, function ($app) {
             return new ElasticSearch(ClientBuilder::create()
                 ->setHosts([config('elasticsearch.connection.host')])
