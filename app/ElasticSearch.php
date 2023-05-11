@@ -31,6 +31,10 @@ class ElasticSearch
         /* @var PropertyVO $property */
         foreach ($defineIndexVO->getProperties() as $property) {
             $data['body']['mappings']['properties'][$property->getName()]['type'] = $property->getType();
+            if($property->getAnalyzer())
+            {
+                $data['body']['mappings']['properties'][$property->getName()]['analyzer'] = $property->getAnalyzer();
+            }
         }
 
         $this->client->indices()->create($data);
