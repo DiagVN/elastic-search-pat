@@ -21,7 +21,7 @@ class ElasticSearchServiceProvider extends ServiceProvider
         $this->app->bind(ElasticSearch::class, function ($app) {
             return new ElasticSearch(ClientBuilder::create()
                 ->setHosts([config('elasticsearch.connection.host')])
-                ->setSSLVerification(false)
+                ->setSSLVerification(config('elasticsearch.connection.sslVerification'))
                 ->setBasicAuthentication(
                     config('elasticsearch.connection.user'),
                     config('elasticsearch.connection.pass')
