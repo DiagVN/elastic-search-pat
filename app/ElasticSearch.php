@@ -5,6 +5,7 @@ namespace Diag\Patient\ElasticSearch;
 use Diag\Patient\ElasticSearch\ValueObjects\PropertyVO;
 use Diag\Patient\ElasticSearch\ValueObjects\DefineIndexVO;
 use Elastic\Elasticsearch\ClientInterface;
+use Elastic\Elasticsearch\Response\Elasticsearch as ElasticsearchResponse;
 
 class ElasticSearch
 {
@@ -122,7 +123,7 @@ class ElasticSearch
         $this->client->indices()->delete(['index' => $indexName]);
     }
 
-    public function search(array $params): array
+    public function search(array $params): ElasticsearchResponse
     {
         return $this->client->search($params);
     }
