@@ -88,7 +88,7 @@ class ElasticSearch
         ]);
     }
 
-    public function index(string $indexName,  ?int $id = null, array $properties = []): void
+    public function index(string $indexName, $id = null, array $properties = []): void
     {
         $data = [];
         $data['index'] = $indexName;
@@ -103,7 +103,7 @@ class ElasticSearch
         $this->client->index($data);
     }
 
-    public function updateIndex(string $indexName, int $id, array $properties = []): void
+    public function updateIndex(string $indexName, mixed $id, array $properties = []): void
     {
         $data = [];
         $data['index'] = $indexName;
