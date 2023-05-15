@@ -103,12 +103,13 @@ class ElasticSearch
         $this->client->index($data);
     }
 
-    public function updateIndex(string $indexName, int $id, array $properties = []): void
+    public function updateIndex(string $indexName, int $id, array $properties = [],bool $upsert = true): void
     {
         $data = [];
         $data['index'] = $indexName;
         $data['id'] = $id;
         $data['body']['doc'] = [];
+        $data['body']['doc_as_upsert'] = $upsert;
         foreach ($properties as $property) {
             if (!$property instanceof PropertyVO) {
                 throw new \Exception('PropertyVO is required');
