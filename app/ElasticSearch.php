@@ -5,6 +5,7 @@ namespace Diag\Patient\ElasticSearch;
 use Diag\Patient\ElasticSearch\ValueObjects\PropertyVO;
 use Diag\Patient\ElasticSearch\ValueObjects\DefineIndexVO;
 use Elastic\Elasticsearch\ClientInterface;
+use Elastic\Elasticsearch\Response\Elasticsearch as ElasticsearchResponse;
 
 class ElasticSearch
 {
@@ -15,7 +16,7 @@ class ElasticSearch
     public function defineIndex(DefineIndexVO $defineIndexVO, ?int $version = null, bool $makeAlias = false): void
     {
         $data = [];
-        $data['index'] = $defineIndexVO->getIndexName().'.'.$version;
+        $data['index'] = $defineIndexVO->getIndexName() . '.' . $version;
         $data['body'] = [];
         $data['body']['settings'] = [];
         $data['body']['settings']['number_of_shards'] = $defineIndexVO->getNumberOfShards();
@@ -31,8 +32,7 @@ class ElasticSearch
         /* @var PropertyVO $property */
         foreach ($defineIndexVO->getProperties() as $property) {
             $data['body']['mappings']['properties'][$property->getName()]['type'] = $property->getType();
-            if($property->getAnalyzer())
-            {
+            if ($property->getAnalyzer()) {
                 $data['body']['mappings']['properties'][$property->getName()]['analyzer'] = $property->getAnalyzer();
             }
         }
@@ -44,7 +44,7 @@ class ElasticSearch
                     'actions' => [
                         [
                             'add' => [
-                                'index' => $defineIndexVO->getIndexName().'.'.$version,
+                                'index' => $defineIndexVO->getIndexName() . '.' . $version,
                                 'alias' => $defineIndexVO->getIndexAlias(),
                             ],
                         ],
@@ -60,10 +60,10 @@ class ElasticSearch
         $this->client->reindex([
             'body' => [
                 'source' => [
-                    'index' => $defineIndexVO->getIndexName().'.'.$oldVersion,
+                    'index' => $defineIndexVO->getIndexName() . '.' . $oldVersion,
                 ],
                 'dest' => [
-                    'index' => $defineIndexVO->getIndexName().'.'.$newVersion,
+                    'index' => $defineIndexVO->getIndexName() . '.' . $newVersion,
                 ],
             ],
         ]);
@@ -72,14 +72,14 @@ class ElasticSearch
                 'actions' => [
                     [
                         'remove' => [
-                            'index' => $defineIndexVO->getIndexName().'.'.$oldVersion,
+                            'index' => $defineIndexVO->getIndexName() . '.' . $oldVersion,
                             'alias' => $defineIndexVO->getIndexAlias(),
 
                         ],
                     ],
                     [
                         'add' => [
-                            'index' => $defineIndexVO->getIndexName().'.'.$newVersion,
+                            'index' => $defineIndexVO->getIndexName() . '.' . $newVersion,
                             'alias' => $defineIndexVO->getIndexAlias(),
                         ],
                     ],
@@ -88,12 +88,12 @@ class ElasticSearch
         ]);
     }
 
-    public function index(string $indexName,  ?int $id = null, array $properties = []): void
+    public function index(string $indexName, $id = null, array $properties = []): void
     {
         $data = [];
         $data['index'] = $indexName;
         $data['id'] = $id;
-        /* @var  PropertyVO $property*/
+        /* @var  PropertyVO $property */
         foreach ($properties as $property) {
             if (!$property instanceof PropertyVO) {
                 throw new \Exception('PropertyVO is required');
@@ -103,7 +103,7 @@ class ElasticSearch
         $this->client->index($data);
     }
 
-    public function updateIndex(string $indexName, int $id, array $properties = [],bool $upsert = true): void
+    public function updateIndex(string $indexName, mixed $id, array $properties = [],bool $upsert = true): void
     {
         $data = [];
         $data['index'] = $indexName;
@@ -122,5 +122,10 @@ class ElasticSearch
     public function dropIndex($indexName): void
     {
         $this->client->indices()->delete(['index' => $indexName]);
+    }
+
+    public function search(array $params): ElasticsearchResponse
+    {
+        return $this->client->search($params);
     }
 }
